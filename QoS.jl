@@ -1,7 +1,7 @@
 using JuMP
 using GLPKMathProgInterface
 using Ipopt
-using ECOS
+#using ECOS
 using SCS
 
 #Number of nodes
@@ -56,11 +56,13 @@ end
 path=[]
 
 append!(path,1)
-find_paths(1,5)
+#find_paths(1,5)
+#####################
 
 #1==>2==>4==>5
 #|  |      |
 #|=3=======
+
 #bandwidth matrix
 B=[[0,      10,   20,0,0],
    [10,      0,   20,30   ,0],
@@ -79,17 +81,17 @@ Flow_delay =[4,6,5,7,9]
 
 #
 #Initialize previous variable
-rate=zeros(F,P)
+rate=[10.0 0.0 0.0 0.0; 0.0 10.0 0.0 0.0; 10.0 0.0 0.0 0.0; 0.0 0.0 0.0 0.0; 10.0 0.0 0.0 0.0]
 #
 #dual variables
 lambda=[0.1,0.1,0.1,0.1,0.1]
-beta=0.1*ones(F)
+beta=0.1*ones(P)
 
 function Optimize_flow_f(rate_f,flow_index) #a vectoc 1xp
-    delta=0.1
-    #myModel = Model(solver=GLPKSolverLP())
+    delta=1000
+    myModel = Model(solver=GLPKSolverLP())
     #myModel= Model(solver=ECOSSolver())
-    myModel= Model(solver=SCSSolver())
+    #myModel= Model(solver=SCSSolver())
     #define activation interface of devices
 
     @variable(myModel,r[1:P]>=0)
@@ -101,8 +103,9 @@ function Optimize_flow_f(rate_f,flow_index) #a vectoc 1xp
         #delay constraint
         @constraint(myModel,path_delay[p]*(temp_r[p])<=Flow_delay[flow_index])
         #requirement throughput
-        @constraint(myModel, r[p]>=Flow_bw[flow_index])
+
     end
+    @constraint(myModel, sum(r[p] for p=1:P) >=Flow_bw[flow_index])
 
     #calculate the cost
     term1=0
@@ -111,21 +114,21 @@ function Optimize_flow_f(rate_f,flow_index) #a vectoc 1xp
         term1=term1+path_cost[p]*temp_r[p]+ packet_lost[p]*r[p]
     end
 
-    term2=beta[flow_index]*(sum(temp_r[p] for p=1:P)-1)
+    term2=lambda[flow_index]*(sum(temp_r[p] for p=1:P)-1)
 
     term3=0
     for p=1:P
-        term3=term3+lambda[p]*(sum(r[p] for p=1:P)-path_bw[p])
+        term3=term3+beta[p]*(sum(r[j] for j=1:P))
     end
     #cost function
 
     obj=term1+term2+term3
     @objective(myModel, Min, obj) # Sets the objective to be minimized. For maximization use Max
-
-
+    #print(myModel)
     status = solve(myModel) # solves the model
     r_value=getValue(r)
-
+    print(r_value)
+    println(status)
     if status=="Optimal"
 
         println("The optimization problem to be solved is:")
@@ -135,68 +138,41 @@ function Optimize_flow_f(rate_f,flow_index) #a vectoc 1xp
         print(r_value)
         return r_value
     else
+        print("unsolved")
         return rate_f
     end
 end
 
-# function Optimize_flows(rate_allocation)
-#     delta=1.5
-#     myModel = Model(solver=GLPKSolverLP())
-#     #myModel= Model(solver=ECOSSolver())
-#     #define activation interface of devices
-#     #@defVar(myModel, x[1:N,1:length(T)] >= 0) # Models x >=0
-#     @defVar(myModel,r[1:F,1:P]>=0)
-#
-#     for f=1:F
-#         for p=1:P
-#             @addConstraint(myModel,r[f,p]/(rate_allocation[f,p]+delta)<=1)
-#             #delay constraint
-#             @addConstraint(myModel,path_delay[p]*(r[f,p]/(rate_allocation[f,p]+delta))<=Flow_delay[f])
-#
-#
-#         end
-#     end
-#     for f=1:F
-#         #unique path constraint
-#         #@addConstraint(myModel,sum((r[f,p]/(rate_allocation[f,p]+delta)) for p=1:P)<=1)
-#         #requirement BW of flows
-#         @addConstraint(myModel,sum(r[f,p] for p=1:P)>=Flow_bw[f])
-#     end
-#     for p=1:P
-#         #constraint of BW on paths
-#         @addConstraint(myModel, sum(r[f,p] for f=1:F)<=path_bw[p])
-#     end
-#     #calculate the cost
-#     cost=0
-#     for f=1:F
-#         for p=1:P
-#             cost=cost+r[f,p]*path_cost[p]
-#         end
-#     end
-#     obj=cost
-#     @setObjective(myModel, Min, obj) # Sets the objective to be minimized. For maximization use Max
-#
-#     println("The optimization problem to be solved is:")
-#
-#     #print(myModel)
-#     #SOLVE IT AND DISPLAY THE RESULTS
-#     #--------------------------------
-#     status = solve(myModel) # solves the model
-#     println("==================================")
-#     #
-#     r_value=getValue(r)
-#     print(r_value)
-#     for i=1:F
-#        print("Flow",i," goes on:")
-#         for j=1:P
-#             if round(r_value[i,j])>0
-#                 print("path",j," with rate:",r_value[i,j],"\n")
-#             end
-#         end
-#     end
-#     return r_value
-# end
 
-# for i=1:F
-#     Optimize_flow_f(rate[i,:],i)
-# end
+sigma=0.5
+gamma=0.6
+delta=100
+new_rate=zeros(F,P)
+
+for k=1:100
+    #optimize for each flow
+    temp=zeros(F,P)
+    for i=1:F
+
+        new_rate[i,:]=Optimize_flow_f(rate[i,:],i)
+        #print(new_rate)
+        for j=1:P
+            temp[i,j]=rate[i,j]/(new_rate[i,j]+delta)
+        end
+        rate=new_rate
+
+    end
+    #dual update
+    for i=1:F
+        lambda[i]=lambda[i]+sigma*(sum(temp[i,p] for p=1:P)-1)
+    end
+    for p=1:P
+        tmp_sum=0
+        for i=1:F
+            for j=1:P
+                tmp_sum=tmp_sum+rate[i,j]
+            end
+        end
+        beta[p]=beta[p]+gamma*(tmp_sum-path_bw[p])
+    end
+end
