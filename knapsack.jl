@@ -5,11 +5,11 @@ using ECOS
 using SCS
 #using PyPlot
 
-delta=0.1
+delta=0.2
 ###
 cost_bins=[1,2,3]
 cap_bins=[5,6,7]
-items=[2,3,3,4,5]
+items=[2,3,2,4,5]
 number_bins=3
 number_items=5
 lambda=0.3*ones(number_bins)
