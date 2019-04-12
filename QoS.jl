@@ -1,6 +1,6 @@
 using JuMP
 using GLPKMathProgInterface
-#using Ipopt
+using Ipopt
 #using ECOS
 #using SCS
 #using PyPlot
@@ -27,7 +27,7 @@ paths=[]
 label=zeros(N,N)
 numberof_path=0
 list_path=[]
-iteration=20
+iteration=10
 
 function find_paths(source_node, destination_node)
     #flag=0
@@ -129,10 +129,10 @@ rate=zeros(F,P)
 #lambdae = 0.1
 duallambdaprevious = 0
 duallambda = 0
-delta=0.001
+delta=0.01
 cons=[[1,1,0.1],
         [1,2,0.1],
-        [2,2,0.1],
+        [2,2,0.2],
         [2,1,0.1],
         [3,3,0.1],
         [3,4,0.2],
@@ -140,7 +140,6 @@ cons=[[1,1,0.1],
         [1,1,0.1],
         [4,4,0.1],
         [1,4,0.1],
-        [4,1,0.1],
         [2,2,0.2],
         [2,3,0.2],
         [3,3,0.2]]
@@ -165,7 +164,7 @@ function Optimize_flow_f(rate_f,flow_index) #a vectoc 1xp
     t=0
     for p=1:P
 
-        @constraint(myModel, temp_r[p]<=r[p]/(rate[p]+delta))
+        @constraint(myModel, temp_r[p]<=r[p]/(rate_f[p]+delta))
         @constraint(myModel, r[p]<=path_bw[p])
         #relaxation variable should be less than 1
 
@@ -198,7 +197,7 @@ function Optimize_flow_f(rate_f,flow_index) #a vectoc 1xp
     for i=1:length(cons)
         p1=Int(cons[i][1])
         p2=Int(cons[i][2])
-        term2=term2+lambdae[i]*(cons[i][3]+new_rate[2,p2]-r[p1])*(cons[i][3]+new_rate[2,p2]-r[p1])
+        term2=term2+lambdae[i]*(-cons[i][3]+new_rate[2,p2]+r[p1])
     end
     print("\n term2 ",term2)
     #print("\n\nChecking term 2:\n")
@@ -223,12 +222,12 @@ function Optimize_flow_f(rate_f,flow_index) #a vectoc 1xp
     end
 end
 sigma=0.5
-gamma=0.1
+gamma=5.9
 epsilon=0.1
 #k=0
 boolean="False"
 new_rate=zeros(F,P)
-
+value_rate=[]
 for k=1:iteration
 #while boolean=="False"
     #k=k+1
@@ -249,14 +248,18 @@ for k=1:iteration
         flow_objective_value[i,k] = objective_value
         println("flow ",i,"rate:",rate)
         for j=1:P
-
+            if rate[i,j]<0.0001
+                new_rate[i,j] =0
+            else
+                new_rate[i,j]=rate[i,j]
+            end
             #print("\nThe calculated rate, of flow ", i, " in path ", j, " is equal to: ", rate[i,j])
             #temp[i,j]=rate[i,j]/(new_rate[i,j]+delta)
             #print("\nThe temp[i,j] is equal to:", temp[i,j])
         end
         #println("\nCheck1: new_rate[i,:] : ", new_rate[i,:])
         #println("\nCheck1: rate[i,:] : ", rate[i,:])
-        new_rate[i,:] =rate[i,:]
+        #new_rate[i,:] =rate[i,:]
 
         #println("\nCheck2: new_rate[i,:] : ", new_rate[i,:])
         #println("\nCheck2: rate[i,:] : ", rate[i,:])
@@ -266,22 +269,22 @@ for k=1:iteration
     print("\n\n****************************************")
     print("\nDual update caculation for each link...")
     print("newrate:",new_rate)
-
+    append!(value_rate,new_rate)
     for s=1:length(cons)
         index_pathflow1=Int(cons[s][1])
         index_pathflow2=Int(cons[s][2])
 
         #println("violate cap ",cons[s][3],":",(-new_rate[1,indexflow1]-new_rate[2,indexflow2]+cons[s][3]))
         temp=lambdae[s]
-        lambdae[s] =lambdae[s]+gamma*(-new_rate[1,index_pathflow1]-new_rate[2,index_pathflow2]+cons[s][3])
+        lambdae[s] =lambdae[s]+gamma*(+new_rate[1,index_pathflow1]+new_rate[2,index_pathflow2]-cons[s][3])
         if(-new_rate[1,index_pathflow1]-new_rate[2,index_pathflow2]+cons[s][3])<0
             print("\nbw:",-new_rate[1,index_pathflow1]-new_rate[2,index_pathflow2]+cons[s][3])
             print("\nconstraint:",index_pathflow1,":",index_pathflow2,":",cons[s][3])
             print("\nnegative ",new_rate[1,index_pathflow1],new_rate[2,index_pathflow2])
-                        lambdae[s]=temp+100*abs((-new_rate[1,index_pathflow1]-new_rate[2,index_pathflow2]+cons[s][3]))
+                        #lambdae[s]=temp+100*abs((-new_rate[1,index_pathflow1]-new_rate[2,index_pathflow2]+cons[s][3]))
         end
         if lambdae[s]<0
-            lambdae[s]=temp+100*abs((-new_rate[1,index_pathflow1]-new_rate[2,index_pathflow2]+cons[s][3]))
+            lambdae[s]=0
         end
         #println(lambdae[s])
     end
